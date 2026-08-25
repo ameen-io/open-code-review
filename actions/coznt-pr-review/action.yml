@@ -1,0 +1,72 @@
+name: Coznt PR Review
+description: Render an OCR JSON result as a severity-grouped sticky PR comment.
+
+inputs:
+  title:
+    description: Heading shown at the top of the PR comment.
+    required: false
+    default: Coznt PR Review
+  marker:
+    description: Unique hidden marker used to maintain the sticky comment.
+    required: false
+    default: '<!-- coznt-pr-review -->'
+  result_path:
+    description: Absolute path to the OCR JSON result.
+    required: true
+  reviewed_files_path:
+    description: Absolute path to a newline-delimited list of reviewed files.
+    required: false
+    default: ''
+  review_status:
+    description: Review execution status, normally success or failure.
+    required: false
+    default: success
+  review_error:
+    description: Error to display when the review did not complete.
+    required: false
+    default: ''
+  model:
+    description: Fallback model name when the OCR result does not include one.
+    required: false
+    default: ''
+  github_token:
+    description: GitHub token used to create or update the PR comment.
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Create or update Coznt PR review
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      env:
+        COZNT_TITLE: ${{ inputs.title }}
+        COZNT_MARKER: ${{ inputs.marker }}
+        COZNT_RESULT_PATH: ${{ inputs.result_path }}
+        COZNT_REVIEWED_FILES_PATH: ${{ inputs.reviewed_files_path }}
+        COZNT_REVIEW_STATUS: ${{ inputs.review_status }}
+        COZNT_REVIEW_ERROR: ${{ inputs.review_error }}
+        COZNT_MODEL: ${{ inputs.model }}
+      with:
+        github-token: ${{ inputs.github_token }}
+        script: |
+          const fs = require('fs');
+          const path = require('path');
+          const rendererPath = path.resolve(
+            process.env.GITHUB_ACTION_PATH,
+            '../../scripts/github-actions/post-coznt-review-summary.js',
+          );
+          const { runPostCozntReviewSummary } = require(rendererPath);
+          await runPostCozntReviewSummary({
+            github,
+            context,
+            core,
+            fs,
+            title: process.env.COZNT_TITLE,
+            marker: process.env.COZNT_MARKER,
+            resultPath: process.env.COZNT_RESULT_PATH,
+            reviewedFilesPath: process.env.COZNT_REVIEWED_FILES_PATH,
+            reviewStatus: process.env.COZNT_REVIEW_STATUS,
+            reviewError: process.env.COZNT_REVIEW_ERROR,
+            fallbackModel: process.env.COZNT_MODEL,
+          });

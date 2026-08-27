@@ -17,6 +17,10 @@ inputs:
     description: Absolute path to a newline-delimited list of reviewed files.
     required: false
     default: ''
+  context_manifest_path:
+    description: Absolute path to an excerpt-free Coznt review context manifest.
+    required: false
+    default: ''
   review_status:
     description: Review execution status, normally success or failure.
     required: false
@@ -44,6 +48,7 @@ runs:
         COZNT_MARKER: ${{ inputs.marker }}
         COZNT_RESULT_PATH: ${{ inputs.result_path }}
         COZNT_REVIEWED_FILES_PATH: ${{ inputs.reviewed_files_path }}
+        COZNT_CONTEXT_MANIFEST_PATH: ${{ inputs.context_manifest_path }}
         COZNT_REVIEW_STATUS: ${{ inputs.review_status }}
         COZNT_REVIEW_ERROR: ${{ inputs.review_error }}
         COZNT_MODEL: ${{ inputs.model }}
@@ -66,6 +71,7 @@ runs:
             marker: process.env.COZNT_MARKER,
             resultPath: process.env.COZNT_RESULT_PATH,
             reviewedFilesPath: process.env.COZNT_REVIEWED_FILES_PATH,
+            contextManifestPath: process.env.COZNT_CONTEXT_MANIFEST_PATH,
             reviewStatus: process.env.COZNT_REVIEW_STATUS,
             reviewError: process.env.COZNT_REVIEW_ERROR,
             fallbackModel: process.env.COZNT_MODEL,

@@ -42,6 +42,14 @@ const body = renderSummary({
   runUrl: "https://example.test/run",
   title: "Coznt PR Review",
   marker: "<!-- coznt-pr-review -->",
+  contextManifest: {
+    status: "partial",
+    warnings: ["requirements.md changed", "unsafe <!-- comment -->"],
+    manifest: {
+      plan: { id: "plan-1", title: "SSO rollout" },
+      artifacts: [{ file: "requirements.md", hashPrefix: "0123456789ab", sourceState: "changed" }],
+    },
+  },
 });
 assert.match(body, /## Coznt PR Review/);
 assert.match(body, /\*\*Model:\*\* `gpt-test`/);
@@ -50,6 +58,9 @@ assert.match(body, /<summary><strong>Moderate \(1\)<\/strong><\/summary>/);
 assert.match(body, /<summary><strong>Low \(1\)<\/strong><\/summary>/);
 assert.match(body, /\*\*Code\*\*[\s\S]*```typescript[\s\S]*const oldValue = true;/);
 assert.match(body, /\*\*Suggested code\*\*[\s\S]*const newValue = false;/);
+assert.match(body, /\*\*Plan:\*\* `plan-1` - SSO rollout/);
+assert.match(body, /`requirements.md` \(`0123456789ab`, `changed`\)/);
+assert.doesNotMatch(body, /unsafe <!-- comment -->/);
 
 async function testPosting() {
   const created = [];

@@ -125,7 +125,11 @@ func TestLoadDefault_PlaceholdersPresent(t *testing.T) {
 		placeholder string
 	}{
 		{"MainTask user has diffs", tpl.MainTask.Messages[1].Content, "{{diffs}}"},
+		{"MainTask user has background", tpl.MainTask.Messages[1].Content, "{{requirement_background}}"},
+		{"MainTask system has trust boundary", tpl.MainTask.Messages[0].Content, "Trust Boundary"},
 		{"PlanTask system has plan_tools", tpl.PlanTask.Messages[0].Content, "{{plan_tools}}"},
+		{"PlanTask user has background", tpl.PlanTask.Messages[1].Content, "{{requirement_background}}"},
+		{"PlanTask system has trust boundary", tpl.PlanTask.Messages[0].Content, "Trust Boundary"},
 		{"MemoryCompression user has context", tpl.MemoryCompressionTask.Messages[1].Content, "{{context}}"},
 		{"ReviewFilter user has comments", tpl.ReviewFilterTask.Messages[1].Content, "{{comments}}"},
 		{"ReLocation user has diff (single brace)", tpl.ReLocationTask.Messages[1].Content, "{diff}"},

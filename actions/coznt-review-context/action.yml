@@ -1,0 +1,77 @@
+name: Fetch Coznt review context
+description: Fetch bounded plan-linked evidence for an OCR pull request review.
+
+inputs:
+  coznt_url:
+    description: Base URL of the Coznt API.
+    required: true
+  coznt_api_key:
+    description: Project-scoped Coznt API key.
+    required: true
+  repository:
+    description: GitHub repository in owner/repo form.
+    required: true
+  pull_number:
+    description: Pull request number.
+    required: true
+  head_sha:
+    description: Pull request head commit SHA.
+    required: true
+
+outputs:
+  available:
+    description: Whether a validated Markdown background file is available.
+    value: ${{ steps.fetch.outputs.available }}
+  status:
+    description: Coznt context status.
+    value: ${{ steps.fetch.outputs.status }}
+  background_path:
+    description: Absolute path to the temporary Markdown file when available.
+    value: ${{ steps.fetch.outputs.background_path }}
+  manifest_path:
+    description: Absolute path to the excerpt-free context manifest.
+    value: ${{ steps.fetch.outputs.manifest_path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Fetch bounded Coznt context
+      id: fetch
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      env:
+        COZNT_URL: ${{ inputs.coznt_url }}
+        COZNT_API_KEY: ${{ inputs.coznt_api_key }}
+        COZNT_REPOSITORY: ${{ inputs.repository }}
+        COZNT_PULL_NUMBER: ${{ inputs.pull_number }}
+        COZNT_HEAD_SHA: ${{ inputs.head_sha }}
+      with:
+        script: |
+          const fs = require('fs');
+          const path = require('path');
+          const helperPath = path.resolve(
+            process.env.GITHUB_ACTION_PATH,
+            '../../scripts/github-actions/fetch-coznt-review-context.js',
+          );
+          const { fetchCozntReviewContext } = require(helperPath);
+          const backgroundPath = path.join(process.env.RUNNER_TEMP, 'coznt-ocr-background.md');
+          const manifestPath = path.join(process.env.RUNNER_TEMP, 'coznt-ocr-context-manifest.json');
+          try {
+            await fetchCozntReviewContext({
+              fetchImpl: fetch,
+              fs,
+              core,
+              baseUrl: process.env.COZNT_URL,
+              apiKey: process.env.COZNT_API_KEY,
+              repository: process.env.COZNT_REPOSITORY,
+              pullNumber: process.env.COZNT_PULL_NUMBER,
+              headSha: process.env.COZNT_HEAD_SHA,
+              backgroundPath,
+              manifestPath,
+            });
+          } catch (error) {
+            core.warning(`Coznt review context is unavailable; continuing diff-only. ${error.message}`);
+            core.setOutput('available', 'false');
+            core.setOutput('status', 'unavailable');
+            core.setOutput('background_path', '');
+            core.setOutput('manifest_path', '');
+          }

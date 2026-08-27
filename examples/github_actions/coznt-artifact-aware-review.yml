@@ -1,0 +1,120 @@
+name: Coznt artifact-aware PR review
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  packages: read
+
+concurrency:
+  group: coznt-ocr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out trusted base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch PR head objects
+        id: range
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
+          git fetch --no-tags origin "+refs/pull/${PR_NUMBER}/head:refs/remotes/origin/coznt-ocr-${PR_NUMBER}"
+          git cat-file -e "${HEAD_SHA}^{commit}"
+          merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          git -c core.quotePath=false diff --name-only "$merge_base" "$HEAD_SHA" > "$RUNNER_TEMP/ocr-reviewed-files.txt"
+          echo "merge_base=$merge_base" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch Coznt review context
+        id: context
+        uses: ameen-io/open-code-review/actions/coznt-review-context@vendor/v1.10.0
+        with:
+          coznt_url: ${{ secrets.COZNT_URL }}
+          coznt_api_key: ${{ secrets.COZNT_API_KEY }}
+          repository: ${{ github.repository }}
+          pull_number: ${{ github.event.pull_request.number }}
+          head_sha: ${{ steps.range.outputs.head_sha }}
+
+      - name: Run custom OCR image
+        id: review
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OCR_LLM_URL: ${{ secrets.OCR_LLM_URL }}
+          OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
+          OCR_LLM_MODEL: ${{ secrets.OCR_LLM_MODEL }}
+          OCR_USE_ANTHROPIC: ${{ secrets.OCR_LLM_USE_ANTHROPIC }}
+          MERGE_BASE: ${{ steps.range.outputs.merge_base }}
+          HEAD_SHA: ${{ steps.range.outputs.head_sha }}
+          BACKGROUND_AVAILABLE: ${{ steps.context.outputs.available }}
+          BACKGROUND_PATH: ${{ steps.context.outputs.background_path }}
+        run: |
+          set +e
+          printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin > "$RUNNER_TEMP/ocr-login.log" 2>&1
+          if [ "${PIPESTATUS[1]}" -ne 0 ]; then
+            echo "status=failure" >> "$GITHUB_OUTPUT"
+            echo "error=GHCR login failed." >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          mounts=(--volume "$GITHUB_WORKSPACE:/repo:ro")
+          background_args=()
+          if [ "$BACKGROUND_AVAILABLE" = "true" ] && [ -f "$BACKGROUND_PATH" ]; then
+            mounts+=(--volume "$BACKGROUND_PATH:/run/coznt/background.md:ro")
+            background_args=(--background-file /run/coznt/background.md)
+          else
+            echo "::warning::Coznt review context unavailable; running diff-only."
+          fi
+
+          docker run --rm "${mounts[@]}" --workdir /repo \
+            --env OCR_LLM_URL --env OCR_LLM_TOKEN --env OCR_LLM_MODEL --env OCR_USE_ANTHROPIC \
+            --entrypoint /bin/sh \
+            ghcr.io/ameen-io/ocr-reviewer:v1.10.0 \
+            -c 'export HOME=/tmp/ocr-home; mkdir -p "$HOME"; git config --global --add safe.directory /repo; exec ocr "$@"' ocr \
+            review --from "$MERGE_BASE" --to "$HEAD_SHA" --audience agent --format json "${background_args[@]}" \
+            > "$RUNNER_TEMP/coznt-ocr.json" 2> "$RUNNER_TEMP/coznt-ocr.stderr"
+          code=$?
+          if [ "$code" -ne 0 ] || ! jq -e . "$RUNNER_TEMP/coznt-ocr.json" >/dev/null 2>&1; then
+            echo "status=failure" >> "$GITHUB_OUTPUT"
+            echo "error=OCR review failed or returned invalid JSON." >> "$GITHUB_OUTPUT"
+          else
+            echo "status=success" >> "$GITHUB_OUTPUT"
+            echo "error=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish compact review summary
+        if: always()
+        uses: ameen-io/open-code-review/actions/coznt-pr-review@vendor/v1.10.0
+        with:
+          result_path: ${{ runner.temp }}/coznt-ocr.json
+          reviewed_files_path: ${{ runner.temp }}/ocr-reviewed-files.txt
+          context_manifest_path: ${{ steps.context.outputs.manifest_path }}
+          review_status: ${{ steps.review.outputs.status }}
+          review_error: ${{ steps.review.outputs.error }}
+          model: ${{ secrets.OCR_LLM_MODEL }}
+          github_token: ${{ github.token }}
+
+      - name: Delete temporary review context
+        if: always()
+        shell: bash
+        run: |
+          rm -f -- "$RUNNER_TEMP/coznt-ocr-background.md" "$RUNNER_TEMP/coznt-ocr-context-manifest.json"

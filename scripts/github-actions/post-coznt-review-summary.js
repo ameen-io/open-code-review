@@ -35,7 +35,7 @@ function validMarker(value) {
 }
 
 function inlineCode(value) {
-  return `\`${cleanText(value).replace(/`/g, "'")}\``;
+  return `\`${cleanText(value).replace(/\r?\n/g, " ").replace(/`/g, "'")}\``;
 }
 
 function languageForPath(filePath) {
@@ -163,7 +163,38 @@ function readReviewedFiles(fs, reviewedFilesPath) {
   }
 }
 
-function renderSummary({ parsed, reviewedFiles, fallbackModel, runUrl, title = "Coznt PR Review", marker = SUMMARY_MARKER }) {
+function readContextManifest(fs, contextManifestPath) {
+  if (!contextManifestPath) return null;
+  try {
+    const value = JSON.parse(fs.readFileSync(contextManifestPath, "utf8"));
+    if (!value?.manifest?.plan || !Array.isArray(value.manifest.artifacts)) return null;
+    return value;
+  } catch (_) {
+    return null;
+  }
+}
+
+function renderContextManifest(value) {
+  if (!value) return "";
+  const plan = value.manifest.plan;
+  const artifacts = value.manifest.artifacts;
+  const lines = [
+    "### Review context",
+    "",
+    `- **Plan:** ${inlineCode(plan.id)} - ${cleanText(plan.title).replace(/\r?\n/g, " ")}`,
+    `- **Context status:** ${inlineCode(value.status || "unknown")}`,
+  ];
+  if (artifacts.length) {
+    lines.push("- **Artifacts:** " + artifacts.map((artifact) =>
+      `${inlineCode(artifact.file)} (${inlineCode(artifact.hashPrefix)}, ${inlineCode(artifact.sourceState)})`
+    ).join(", "));
+  }
+  const warnings = Array.isArray(value.warnings) ? value.warnings.map(cleanText).filter(Boolean) : [];
+  if (warnings.length) lines.push("- **Warnings:** " + warnings.join(" "));
+  return lines.join("\n");
+}
+
+function renderSummary({ parsed, reviewedFiles, contextManifest, fallbackModel, runUrl, title = "Coznt PR Review", marker = SUMMARY_MARKER }) {
   const result = parsed.result || {};
   const findings = Array.isArray(result.comments) ? result.comments : [];
   const groups = Object.fromEntries(LEVELS.map((level) => [level, []]));
@@ -186,6 +217,8 @@ function renderSummary({ parsed, reviewedFiles, fallbackModel, runUrl, title = "
   } else {
     LEVELS.forEach((level) => lines.push("", renderLevel(level, groups[level])));
   }
+  const renderedContext = renderContextManifest(contextManifest);
+  if (renderedContext) lines.push("", renderedContext);
   if (runUrl) lines.push("", `[Workflow run](${runUrl})`);
   return lines.join("\n");
 }
@@ -199,17 +232,19 @@ async function runPostCozntReviewSummary({
   marker = SUMMARY_MARKER,
   resultPath,
   reviewedFilesPath = "",
+  contextManifestPath = "",
   reviewStatus = "success",
   reviewError = "",
   fallbackModel = "",
 }) {
   const parsed = parseResult(fs, resultPath, reviewStatus, reviewError);
   const reviewedFiles = readReviewedFiles(fs, reviewedFilesPath);
+  const contextManifest = readContextManifest(fs, contextManifestPath);
   const runUrl = process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY && process.env.GITHUB_RUN_ID
     ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
     : "";
   const stickyMarker = validMarker(marker);
-  const body = renderSummary({ parsed, reviewedFiles, fallbackModel, runUrl, title, marker: stickyMarker });
+  const body = renderSummary({ parsed, reviewedFiles, contextManifest, fallbackModel, runUrl, title, marker: stickyMarker });
   const prNumber = context.issue?.number ?? context.payload?.pull_request?.number;
 
   const comments = await github.paginate(github.rest.issues.listComments, {
@@ -250,6 +285,8 @@ module.exports = {
   findingLine,
   renderFinding,
   renderLevel,
+  readContextManifest,
+  renderContextManifest,
   renderSummary,
   runPostCozntReviewSummary,
 };

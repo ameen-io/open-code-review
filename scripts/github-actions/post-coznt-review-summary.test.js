@@ -53,13 +53,14 @@ const body = renderSummary({
 });
 assert.match(body, /## Coznt PR Review/);
 assert.match(body, /\*\*Model:\*\* `gpt-test`/);
-assert.match(body, /<summary><strong>High \(1\)<\/strong><\/summary>/);
-assert.match(body, /<summary><strong>Moderate \(1\)<\/strong><\/summary>/);
-assert.match(body, /<summary><strong>Low \(1\)<\/strong><\/summary>/);
+assert.match(body, /🚨 \*\*ACTION REQUIRED — artifact-aware review found 1 High-severity finding\.\*\*/);
+assert.match(body, /### 🚨 High \(1\)/);
+assert.match(body, /<summary><strong>🟠 Moderate \(1\)<\/strong><\/summary>/);
+assert.match(body, /<summary><strong>🔵 Low \(1\)<\/strong><\/summary>/);
 assert.match(body, /\*\*Code\*\*[\s\S]*```typescript[\s\S]*const oldValue = true;/);
 assert.match(body, /\*\*Suggested code\*\*[\s\S]*const newValue = false;/);
 assert.match(body, /\*\*Plan:\*\* `plan-1` - SSO rollout/);
-assert.match(body, /\*\*Linked artifacts:\*\* Used with frozen excerpts\./);
+assert.match(body, /\*\*Linked artifacts:\*\* ⚠️ Used with frozen excerpts\./);
 assert.match(body, /`requirements.md` \(`0123456789ab`, `changed`\)/);
 assert.doesNotMatch(body, /unsafe <!-- comment -->/);
 
@@ -72,7 +73,7 @@ const skippedContext = renderSummary({
     manifest: { plan: null, artifacts: [] },
   },
 });
-assert.match(skippedContext, /\*\*Linked artifacts:\*\* Skipped/);
+assert.match(skippedContext, /\*\*Linked artifacts:\*\* ⚪ Skipped/);
 assert.match(skippedContext, /no Coznt-stored plan mapping/);
 
 async function testPosting() {

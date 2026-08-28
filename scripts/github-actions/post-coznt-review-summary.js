@@ -5,6 +5,7 @@
 
 const SUMMARY_MARKER = "<!-- coznt-pr-review -->";
 const LEVELS = ["High", "Moderate", "Low"];
+const LEVEL_ICONS = { High: "🚨", Moderate: "🟠", Low: "🔵" };
 
 function normalizeLevel(severity) {
   switch (String(severity || "").trim().toLowerCase()) {
@@ -126,9 +127,18 @@ function renderFinding(finding, index) {
 }
 
 function renderLevel(level, findings) {
+  const heading = `${LEVEL_ICONS[level]} ${level} (${findings.length})`;
+  if (level === "High" && findings.length > 0) {
+    const lines = [`### ${heading}`, ""];
+    findings.forEach((finding, index) => {
+      if (index > 0) lines.push("", "---", "");
+      lines.push(renderFinding(finding, index + 1));
+    });
+    return lines.join("\n");
+  }
   const lines = [
     "<details>",
-    `<summary><strong>${level} (${findings.length})</strong></summary>`,
+    `<summary><strong>${heading}</strong></summary>`,
     "",
   ];
   if (findings.length === 0) {
@@ -141,6 +151,30 @@ function renderLevel(level, findings) {
   }
   lines.push("", "</details>");
   return lines.join("\n");
+}
+
+function renderAttentionBanner({ parsed, groups, contextManifest }) {
+  if (!parsed.succeeded) return "";
+  const highCount = groups.High.length;
+  const contextWasUsed = Boolean(contextManifest?.manifest?.plan)
+    && ["ready", "partial"].includes(contextManifest.status);
+
+  if (highCount > 0 && contextWasUsed) {
+    return [
+      "> 🚨 **ACTION REQUIRED — artifact-aware review found " + highCount
+        + " High-severity finding" + (highCount === 1 ? "" : "s") + ".**",
+      ">",
+      "> Linked Coznt artifacts were used as review evidence. Check the High findings below before merging.",
+    ].join("\n");
+  }
+  if (highCount > 0) {
+    return "> 🚨 **ACTION REQUIRED — review found " + highCount + " High-severity finding"
+      + (highCount === 1 ? ".**" : "s.**");
+  }
+  if (contextWasUsed) {
+    return "> ✅ **Artifact-aware review complete — no High-severity findings.**";
+  }
+  return "";
 }
 
 function parseResult(fs, resultPath, reviewStatus, reviewError) {
@@ -183,19 +217,19 @@ function renderContextManifest(value) {
   const warnings = Array.isArray(value.warnings) ? value.warnings.map(cleanText).filter(Boolean) : [];
   if (!plan) {
     const lines = [
-      "### Review context",
+      "### 🧭 Review context",
       "",
-      "- **Linked artifacts:** Skipped (no usable Coznt plan context was available).",
+      "- **Linked artifacts:** ⚪ Skipped (no usable Coznt plan context was available).",
     ];
     if (warnings.length) lines.push("- **Reason:** " + warnings.join(" "));
     return lines.join("\n");
   }
   const lines = [
-    "### Review context",
+    "### 🧭 Review context",
     "",
     `- **Plan:** ${inlineCode(plan.id)} - ${cleanText(plan.title).replace(/\r?\n/g, " ")}`,
     `- **Context status:** ${inlineCode(value.status || "unknown")}`,
-    `- **Linked artifacts:** ${value.status === "partial" ? "Used with frozen excerpts" : "Used"}.`,
+    `- **Linked artifacts:** ${value.status === "partial" ? "⚠️ Used with frozen excerpts" : "✅ Used"}.`,
   ];
   if (artifacts.length) {
     lines.push("- **Artifacts:** " + artifacts.map((artifact) =>
@@ -224,13 +258,16 @@ function renderSummary({ parsed, reviewedFiles, contextManifest, fallbackModel, 
     `- **Finding count:** ${parsed.succeeded ? findings.length : "Unknown"}`,
   ];
 
+  const attentionBanner = renderAttentionBanner({ parsed, groups, contextManifest });
+  if (attentionBanner) lines.push("", attentionBanner);
+  const renderedContext = renderContextManifest(contextManifest);
+  if (renderedContext) lines.push("", renderedContext);
+
   if (!parsed.succeeded) {
     lines.push("", `**Error:** ${parsed.error}`);
   } else {
     LEVELS.forEach((level) => lines.push("", renderLevel(level, groups[level])));
   }
-  const renderedContext = renderContextManifest(contextManifest);
-  if (renderedContext) lines.push("", renderedContext);
   if (runUrl) lines.push("", `[Workflow run](${runUrl})`);
   return lines.join("\n");
 }
@@ -297,6 +334,7 @@ module.exports = {
   findingLine,
   renderFinding,
   renderLevel,
+  renderAttentionBanner,
   readContextManifest,
   renderContextManifest,
   renderSummary,

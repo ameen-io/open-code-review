@@ -167,7 +167,9 @@ function readContextManifest(fs, contextManifestPath) {
   if (!contextManifestPath) return null;
   try {
     const value = JSON.parse(fs.readFileSync(contextManifestPath, "utf8"));
-    if (!value?.manifest?.plan || !Array.isArray(value.manifest.artifacts)) return null;
+    if (!value?.manifest || !["ready", "partial", "unavailable"].includes(value.status)
+      || !Array.isArray(value.manifest.artifacts)) return null;
+    if (value.manifest.plan !== null && typeof value.manifest.plan !== "object") return null;
     return value;
   } catch (_) {
     return null;
@@ -178,18 +180,28 @@ function renderContextManifest(value) {
   if (!value) return "";
   const plan = value.manifest.plan;
   const artifacts = value.manifest.artifacts;
+  const warnings = Array.isArray(value.warnings) ? value.warnings.map(cleanText).filter(Boolean) : [];
+  if (!plan) {
+    const lines = [
+      "### Review context",
+      "",
+      "- **Linked artifacts:** Skipped (no usable Coznt plan context was available).",
+    ];
+    if (warnings.length) lines.push("- **Reason:** " + warnings.join(" "));
+    return lines.join("\n");
+  }
   const lines = [
     "### Review context",
     "",
     `- **Plan:** ${inlineCode(plan.id)} - ${cleanText(plan.title).replace(/\r?\n/g, " ")}`,
     `- **Context status:** ${inlineCode(value.status || "unknown")}`,
+    `- **Linked artifacts:** ${value.status === "partial" ? "Used with frozen excerpts" : "Used"}.`,
   ];
   if (artifacts.length) {
     lines.push("- **Artifacts:** " + artifacts.map((artifact) =>
       `${inlineCode(artifact.file)} (${inlineCode(artifact.hashPrefix)}, ${inlineCode(artifact.sourceState)})`
     ).join(", "));
   }
-  const warnings = Array.isArray(value.warnings) ? value.warnings.map(cleanText).filter(Boolean) : [];
   if (warnings.length) lines.push("- **Warnings:** " + warnings.join(" "));
   return lines.join("\n");
 }

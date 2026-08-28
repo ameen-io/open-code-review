@@ -69,9 +69,16 @@ runs:
               manifestPath,
             });
           } catch (error) {
-            core.warning(`Coznt review context is unavailable; continuing diff-only. ${error.message}`);
+            const warning = `Coznt review context is unavailable; continuing diff-only. ${error.message}`;
+            core.warning(warning);
+            fs.writeFileSync(manifestPath, JSON.stringify({
+              version: 1,
+              status: 'unavailable',
+              warnings: [warning],
+              manifest: { plan: null, artifacts: [] },
+            }, null, 2) + '\n', { mode: 0o600 });
             core.setOutput('available', 'false');
             core.setOutput('status', 'unavailable');
             core.setOutput('background_path', '');
-            core.setOutput('manifest_path', '');
+            core.setOutput('manifest_path', manifestPath);
           }
